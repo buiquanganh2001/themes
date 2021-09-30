@@ -326,6 +326,10 @@ ul ul {
 	text-decoration: none;
 }
 
+.wp-block-post-comments .nocomments {
+	display: none;
+}
+
 .wp-block-post-navigation-link {
 	border-top: 1px solid;
 	display: flex;

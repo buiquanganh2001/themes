@@ -17,4 +17,9 @@
 			text-decoration: none;
 		}
 	}
+
+	// Needed until Gutenberg/WordPress allows hiding comments if there are no comments and comments are off
+	.nocomments {
+		display: none;
+	}
 }
