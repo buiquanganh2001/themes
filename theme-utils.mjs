@@ -220,7 +220,7 @@ async function checkForDeployability(){
  This is the git version of that action.
 */
 async function landChangesGit(diffId){
-	return await executeOnSandbox(`cd ${sandboxPublicThemesFolder};arc patch ${diffId};arc land;exit;`, true, true);
+	return executeCommand(`ssh -tt -A ${remoteSSH} "cd ${sandboxPublicThemesFolder}; ~/.arcanist-wpcom-git/bin/arc patch ${diffId}; ~/.arcanist-wpcom-git/bin/arc land; exit;"`, true);
 }
 
 /*
@@ -319,6 +319,7 @@ async function versionBumpThemes() {
 	let themes = await getActionableThemes();
 	let hash = await getLastDeployedHash();
 	let versionBumpCount = 0;
+	let versionsJustBumpped = 0;
 
 	for (let theme of themes) {
 		let hasChanges = await checkThemeForChanges(theme, hash);
@@ -334,15 +335,16 @@ async function versionBumpThemes() {
 		}
 
 		await versionBumpTheme(theme);
+		versionsJustBumpped++;
 	}
-
 	//version bump the root project if there were changes to any of the themes
 	let rootHasVersionBump = await checkThemeForVersionBump('.', hash);
 	if ( versionBumpCount > 0 && ! rootHasVersionBump ) {
 		await executeCommand(`npm version patch --no-git-tag-version`);
+		versionsJustBumpped++;
 	}
 
-	if (versionBumpCount > 0) {
+	if (versionsJustBumpped > 0) {
 		console.log('commiting version-bump');
 		await executeCommand(`
 			git commit -a -m "Version Bump";
@@ -397,6 +399,9 @@ async function versionBumpTheme(theme){
  Compares the value of 'version' in style.css between the hash and current value
 */
 async function checkThemeForVersionBump(theme, hash){
+	if( theme === '.' ) {
+		return checkRootForVersionBump(hash);
+	}
 	return executeCommand(`
 		git show ${hash}:${theme}/style.css 2>/dev/null
 	`)
@@ -412,6 +417,21 @@ async function checkThemeForVersionBump(theme, hash){
 		let styleCss = fs.readFileSync(`${theme}/style.css`, 'utf8');
 		let currentVersion = getThemeMetadata(styleCss, 'Version');
 		return previousVersion != currentVersion;
+	});
+}
+
+async function checkRootForVersionBump(hash){
+	return executeCommand(`
+		git show ${hash}:./package.json 2>/dev/null
+	`)
+	.catch( ( error ) => {
+		console.log( 'Something went wrong checking root project version' );
+		return false;
+	} )
+	.then( ( previousPackageString ) => {
+		let previousPackage = JSON.parse(previousPackageString);
+		let currentPackage = JSON.parse(fs.readFileSync(`./package.json`))
+		return previousPackage.version != currentPackage.version;
 	});
 }
 
@@ -712,7 +732,7 @@ async function tagDeployment(options={}) {
 	await executeCommand(`
 		git tag -a ${tag} -m "${message}"
 		git push origin ${tag}
-	`);
+	`, true);
 }
 
 /*
@@ -730,7 +750,6 @@ function executeOnSandbox(command, logResponse, enablePsudoterminal){
 		return executeCommand(`ssh -tt -A ${remoteSSH} << EOF
 ${command}
 EOF`, logResponse);
-
 	}
 
 	return executeCommand(`ssh -TA ${remoteSSH} << EOF
@@ -754,7 +773,9 @@ async function executeCommand(command, logResponse) {
 				stdio: [process.stdin, 'pipe', 'pipe'],
 			})
 		} else {
-			child = spawn(process.env.SHELL, ['-c', command]);
+			child = spawn(process.env.SHELL, ['-c', command], {
+				stdio: [process.stdin, 'pipe', 'pipe'],
+			});
 		}
 
 		child.stdout.on('data', (data) => {
